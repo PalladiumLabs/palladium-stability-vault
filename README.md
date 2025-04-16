@@ -23,7 +23,7 @@ proxy patterns.
 - **DEX Integration:** Configurable swap pools for converting tokens using a V3 router.
 - **Balance Reporting:** Provides functions to check the total value locked, balance in the Stability Pool, pending
   deposit token balance, and the value of unrealized gains.
-- **Liquidation Trigger:** Includes a function to interact with a `VesselManager` to liquidate vessels.
+- **Liquidation Trigger:** Includes a function to interact with a `TroveManager` to liquidate troves.
 - **Pausable:** Contract operations can be paused and unpaused by the manager.
 - **Access Control:** Key functions are restricted to a `manager` or a specific `vault` address.
 - **Security:** Implements Reentrancy Guard.
@@ -53,7 +53,7 @@ other protocols:
 - **DEX Swap Configuration:** The manager can define the specific V3 liquidity pools (`addPool`) to be used for swapping
   between different tokens (e.g., collateral-to-base, base-to-deposit).
 - **External Protocol Interaction:** It contains a `liquidate` function designed to interact with a separate
-  `VesselManager` contract, likely to trigger the liquidation of undercollateralized positions within the associated
+  `TroveManager` contract, likely to trigger the liquidation of undercollateralized positions within the associated
   lending protocol.
 
 ### Utility and Security Aspects
