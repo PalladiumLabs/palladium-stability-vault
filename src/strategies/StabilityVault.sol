@@ -13,7 +13,7 @@ import "./common/FeeManager.sol";
 
 import "./interfaces/IStabilityPool.sol";
 import "./interfaces/IPriceFeed.sol";
-import "./interfaces/IVesselManagerOperations.sol";
+import "./interfaces/ITroveManagerOperations.sol";
 import "./interfaces/IPancakeV3Pool.sol";
 
 struct VaultConfig {
@@ -41,7 +41,7 @@ contract StabilityVault  is  Initializable, ReentrancyGuard, Pausable, FeeManage
 
     address public stabilityPool;
     address public priceFeed;
-    address public vesselManager;
+    address public troveManager;
 
     mapping(address => mapping(address => address)) public swapPools;
 
@@ -60,7 +60,7 @@ contract StabilityVault  is  Initializable, ReentrancyGuard, Pausable, FeeManage
         withdrawFeeDecimals = _commonAddress.withdrawFeeDecimals;
         slippage = _commonAddress.slippage;
         slippageDecimals = _commonAddress.slippageDecimals;
-        vesselManager = _commonAddress.vManager;
+        troveManager = _commonAddress.vManager;
     }
 
     function addCollateralAsset(address _asset, address _oracle) public {
@@ -163,7 +163,7 @@ contract StabilityVault  is  Initializable, ReentrancyGuard, Pausable, FeeManage
     }
 
     function liquidate(address _asset, uint256 _n) public {
-        IVesselManagerOperations(vesselManager).liquidateVessels(_asset, _n);
+        ITroveManagerOperations(troveManager).liquidateTroves(_asset, _n);
     }
 
     function harvest() public {
