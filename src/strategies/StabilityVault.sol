@@ -185,8 +185,7 @@ contract StabilityVault  is  Initializable, ReentrancyGuard, Pausable, FeeManage
     function _swapV3In(address tokenIn, address tokenOut, uint256 amountIn) internal returns (uint256 amountOut) {
         if (tokenIn != tokenOut) {
             address pool = swapPools[tokenIn][tokenOut];
-            // uint24 fee = IPancakeV3Pool(pool).fee();
-            uint24 fee = 3000; // default fee
+            uint24 fee = IPancakeV3Pool(pool).fee();
             uint256 amountBMax = tokenAToTokenBConversion(tokenIn, tokenOut, amountIn);
             uint256 amountBMin = amountBMax * slippage / slippageDecimals;
             amountOut = IV3SwapRouter(router).exactInputSingle(
