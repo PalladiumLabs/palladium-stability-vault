@@ -11,7 +11,7 @@ contract DeployRouter is Script {
     address public pusd = 0xe19cE0aCF70DBD7ff9Cb80715f84aB0Fd72B57AC;
     address public wbtc = 0x321f90864fb21cdcddD0D67FE5e4Cbc812eC9e64;
 
-    address public router =0x3b57978b411E909424E98A6a506823Ec93a0CD85;
+    //address public router =0x3b57978b411E909424E98A6a506823Ec93a0CD85;
 
 
     function run() external {

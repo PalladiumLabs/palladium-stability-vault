@@ -3,18 +3,20 @@ pragma solidity ^0.8.0;
 import "@openzeppelin/token/ERC20/IERC20.sol";
 import "@openzeppelin/token/ERC20/extensions/IERC20Metadata.sol";
 import "@openzeppelin/token/ERC20/utils/SafeERC20.sol";
-import "@openzeppelin/access/Ownable.sol";
 import "@openzeppelin/security/Pausable.sol";
 import "@openzeppelin/security/ReentrancyGuard.sol";
 import "@openzeppelin/proxy/utils/Initializable.sol";
+import "@openzeppelin/proxy/utils/UUPSUpgradeable.sol";
 import "./interfaces/IV3SwapRouter.sol";
 
 import "./common/FeeManager.sol";
-
+import "./interfaces/IV3SwapRouter.sol";
 import "./interfaces/IStabilityPool.sol";
 import "./interfaces/IPriceFeed.sol";
 import "./interfaces/ITroveManagerOperations.sol";
 import "./interfaces/IPancakeV3Pool.sol";
+import "./interfaces/IDolomiteMargin.sol";
+import "./interfaces/IDepositWithdrawalRouter.sol";
 
 struct VaultConfig {
     address depositToken;
@@ -28,13 +30,16 @@ struct CommonAddress {
     address manager;
     address router;
     address vManager;
+    address doloM;
+    address doloRouter;
+    uint256 allocation; // allocation in basis points (1000 = 10%)
     uint256 withdrawFee;
     uint256 withdrawFeeDecimals;
     uint256 slippage;
     uint256 slippageDecimals;
 }
 
-contract StabilityVault  is  Initializable, ReentrancyGuard, Pausable, FeeManager {
+contract StabilityVault is Initializable, UUPSUpgradeable, ReentrancyGuard, Pausable, FeeManager {
     address public depositToken; // deposit token (PUSD)
     address public baseToken; // base token to swap all asset before swapping to depositToken
     address[] public collateralAssets;
@@ -42,6 +47,11 @@ contract StabilityVault  is  Initializable, ReentrancyGuard, Pausable, FeeManage
     address public stabilityPool;
     address public priceFeed;
     address public troveManager;
+
+    address public doloM;
+    address public doloRouter;
+
+    uint256 public allocation;
 
     mapping(address => mapping(address => address)) public swapPools;
 
@@ -61,6 +71,10 @@ contract StabilityVault  is  Initializable, ReentrancyGuard, Pausable, FeeManage
         slippage = _commonAddress.slippage;
         slippageDecimals = _commonAddress.slippageDecimals;
         troveManager = _commonAddress.vManager;
+        doloM = _commonAddress.doloM;
+        doloRouter = _commonAddress.doloRouter;
+        allocation = _commonAddress.allocation;
+        _giveAllowances();
     }
 
     function addCollateralAsset(address _asset, address _oracle) public {
@@ -77,6 +91,7 @@ contract StabilityVault  is  Initializable, ReentrancyGuard, Pausable, FeeManage
 
     function _deposit() internal {
         _provideToSP();
+        onYeild();
     }
 
     function withdraw(uint256 _amount) public nonReentrant {
@@ -86,7 +101,9 @@ contract StabilityVault  is  Initializable, ReentrancyGuard, Pausable, FeeManage
             IERC20(depositToken).transfer(vault, _amount);
         } else {
             harvest();
-            IStabilityPool(stabilityPool).withdrawFromSP(_amount - currentBal, collateralAssets);
+            uint256 fromSp = allocation * _amount / 1000;
+            IStabilityPool(stabilityPool).withdrawFromSP(fromSp, collateralAssets);
+            offYeild(_amount - fromSp);
             IERC20(depositToken).transfer(vault, _amount);
         }
     }
@@ -106,18 +123,36 @@ contract StabilityVault  is  Initializable, ReentrancyGuard, Pausable, FeeManage
         if (baseBalance > 0) {
             _swapV3In(baseToken, depositToken, baseBalance);
             _provideToSP();
+            onYeild();
         }
     }
 
-    function closePostion() public {
+    function closePostion() external {
         onlyManager();
+        _closePostion();
+    }
+
+    function _closePostion() internal {
         uint256 amount = balanceOfSp();
         IStabilityPool(stabilityPool).withdrawFromSP(amount, collateralAssets);
+        uint256 balYeild = balanceOfYeild();
+        offYeild(balYeild);
+    }
+
+    function rebalance() external {
+        onlyManager();
+        _closePostion();
+        _deposit();
     }
 
     function _provideToSP() internal {
-        uint256 balance = IERC20(depositToken).balanceOf(address(this));
-        IStabilityPool(stabilityPool).provideToSP(balance, collateralAssets);
+        uint256 _amount = IERC20(depositToken).balanceOf(address(this));
+        uint256 inSp = allocation * _amount/1000;
+        IStabilityPool(stabilityPool).provideToSP(inSp, collateralAssets);
+    }
+
+    function withdrawFromSP(uint256 _amount) internal {
+        IStabilityPool(stabilityPool).withdrawFromSP(_amount, collateralAssets);
     }
 
     function addPool(address _collateralAsset, address _baseToken, address _pool) external returns (bool) {
@@ -127,9 +162,61 @@ contract StabilityVault  is  Initializable, ReentrancyGuard, Pausable, FeeManage
         return true;
     }
 
-    function addOracle(address _asset , address _oracle) external {
+    function addOracle(address _asset, address _oracle) external {
         onlyManager();
         oracles[_asset] = _oracle;
+    }
+
+    function liquidate(address _asset, uint256 _n) public {
+        IVesselManagerOperations(troveManager).liquidateVessels(_asset, _n);
+    }
+
+    function onYeild() internal {
+        uint256 amount = IERC20(depositToken).balanceOf(address(this));
+        uint256 mrktID = IDolomiteMargin(doloM).getMarketIdByTokenAddress(depositToken);
+        IDepositWithdrawalRouter(doloRouter).depositWei(0, 0, mrktID, amount, IDepositWithdrawalRouter.EventFlag.None);
+    }
+
+    function offYeild(uint256 _amount) internal {
+        uint256 mrktID = IDolomiteMargin(doloM).getMarketIdByTokenAddress(depositToken);
+
+        IDepositWithdrawalRouter(doloRouter).withdrawWei(
+            0, 0, mrktID, _amount, AccountBalanceLib.BalanceCheckFlag.None
+        );
+    }
+
+    function harvest() public {
+        IStabilityPool(stabilityPool).withdrawFromSP(0, collateralAssets);
+        for (uint256 i = 0; i < collateralAssets.length; i++) {
+            uint256 assetBal = IERC20(collateralAssets[i]).balanceOf(address(this));
+            if (assetBal > 0) {
+                _swapV3In(collateralAssets[i], baseToken, assetBal);
+            }
+        }
+        uint256 baseBal = IERC20(baseToken).balanceOf(address(this));
+        if (baseBal > 0) {
+            _swapV3In(baseToken, depositToken, baseBal);
+            _deposit();
+        }
+    }
+
+
+    function setAllo(uint256 _newAllo) external returns(uint256) {
+        onlyManager();
+        allocation = _newAllo;
+        return allocation;
+    }
+
+    function _swapV3In(address tokenIn, address tokenOut, uint256 amountIn) internal returns (uint256 amountOut) {
+        if (tokenIn != tokenOut) {
+            address pool = swapPools[tokenIn][tokenOut];
+            uint24 fee = IPancakeV3Pool(pool).fee();
+            uint256 amountBMax = tokenAToTokenBConversion(tokenIn, tokenOut, amountIn);
+            uint256 amountBMin = amountBMax * slippage / slippageDecimals;
+            amountOut = IV3SwapRouter(router).exactInputSingle(
+                IV3SwapRouter.ExactInputSingleParams(tokenIn, tokenOut, fee, address(this), amountIn, amountBMin, 0)
+            );
+        }
     }
 
     function tokenToUSD(address _asset, uint256 _amount) public view returns (uint256) {
@@ -140,7 +227,7 @@ contract StabilityVault  is  Initializable, ReentrancyGuard, Pausable, FeeManage
     }
 
     function balanceOf() public view returns (uint256) {
-        return balanceOfSp() + balaceOfGains() + balanceOfDepositToken();
+        return balanceOfSp() + balaceOfGains() + balanceOfDepositToken() + balanceOfYeild();
     }
 
     function balanceOfSp() public view returns (uint256) {
@@ -162,36 +249,12 @@ contract StabilityVault  is  Initializable, ReentrancyGuard, Pausable, FeeManage
         return amount;
     }
 
-    function liquidate(address _asset, uint256 _n) public {
-        ITroveManagerOperations(troveManager).liquidateTroves(_asset, _n);
-    }
+    function balanceOfYeild() public view returns (uint256) {
+        uint256 mrktID = IDolomiteMargin(doloM).getMarketIdByTokenAddress(depositToken);
+        Account.Info memory account = Account.Info({owner: address(this), number: 0});
 
-    function harvest() public {
-        IStabilityPool(stabilityPool).withdrawFromSP(0, collateralAssets);
-        for (uint256 i = 0; i < collateralAssets.length; i++) {
-            uint256 assetBal = IERC20(collateralAssets[i]).balanceOf(address(this));
-            if (assetBal > 0) {
-                 _swapV3In(collateralAssets[i], baseToken, assetBal);
-            }
-        }
-        uint256 baseBal = IERC20(baseToken).balanceOf(address(this));
-        if (baseBal > 0) {
-            _swapV3In(baseToken, depositToken, baseBal);
-            _deposit();
-        }
-  
-    }
-
-    function _swapV3In(address tokenIn, address tokenOut, uint256 amountIn) internal returns (uint256 amountOut) {
-        if (tokenIn != tokenOut) {
-            address pool = swapPools[tokenIn][tokenOut];
-            uint24 fee = IPancakeV3Pool(pool).fee();
-            uint256 amountBMax = tokenAToTokenBConversion(tokenIn, tokenOut, amountIn);
-            uint256 amountBMin = amountBMax * slippage / slippageDecimals;
-            amountOut = IV3SwapRouter(router).exactInputSingle(
-                IV3SwapRouter.ExactInputSingleParams(tokenIn, tokenOut, fee, address(this), amountIn, amountBMin, 0)
-            );
-        }
+        Types.Wei memory myWei = IDolomiteMargin(doloM).getAccountWei(account, mrktID);
+        return myWei.value;
     }
 
     function tokenAToTokenBConversion(address _tokenA, address _tokenB, uint256 amountA)
@@ -235,33 +298,42 @@ contract StabilityVault  is  Initializable, ReentrancyGuard, Pausable, FeeManage
 
     function _giveAllowances() internal virtual {
         IERC20(depositToken).approve(stabilityPool, type(uint256).max);
-        IERC20(baseToken).approve(router, type(uint256).max);
         IERC20(depositToken).approve(router, type(uint256).max);
+        IERC20(depositToken).approve(doloRouter, type(uint256).max);
+        IERC20(baseToken).approve(doloRouter,type(uint256).max);
+        IERC20(baseToken).approve(router, type(uint256).max);
+     
         for (uint256 i = 0; i < collateralAssets.length; i++) {
             IERC20(collateralAssets[i]).approve(stabilityPool, type(uint256).max);
             IERC20(collateralAssets[i]).approve(router, type(uint256).max);
+            IERC20(collateralAssets[i]).approve(doloRouter, type(uint256).max);
         }
     }
 
     function _giveAllowances(address _asset) internal virtual {
         IERC20(_asset).approve(stabilityPool, type(uint256).max);
         IERC20(_asset).approve(router, type(uint256).max);
+        IERC20(_asset).approve(doloRouter, type(uint256).max);
     }
 
     function _removeAllowances() internal virtual {
         IERC20(depositToken).approve(stabilityPool, 0);
-        IERC20(baseToken).approve(router, 0);
         IERC20(depositToken).approve(router, 0);
+        IERC20(depositToken).approve(doloRouter, 0);
+        IERC20(baseToken).approve(router, 0);
+       
         for (uint256 i = 0; i < collateralAssets.length; i++) {
             IERC20(collateralAssets[i]).approve(stabilityPool, 0);
             IERC20(collateralAssets[i]).approve(router, 0);
+            IERC20(collateralAssets[i]).approve(doloRouter, 0);
         }
     }
 
     function _removeAllowances(address _asset) internal virtual {
         IERC20(_asset).approve(stabilityPool, 0);
         IERC20(_asset).approve(router, 0);
+        IERC20(_asset).approve(doloRouter, 0);
     }
 
-
+    function _authorizeUpgrade(address) internal override onlyOwner {}
 }

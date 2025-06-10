@@ -70,3 +70,4 @@ The contract incorporates standard utility and security patterns:
   triggering compounding) are reserved for a `manager` address.
 - **Reentrancy Protection:** Utilizes OpenZeppelin's `ReentrancyGuard` on functions like `withdraw` to mitigate the risk
   of reentrancy attacks.
+
