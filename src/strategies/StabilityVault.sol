@@ -3,12 +3,9 @@ pragma solidity ^0.8.0;
 import "@openzeppelin/token/ERC20/IERC20.sol";
 import "@openzeppelin/token/ERC20/extensions/IERC20Metadata.sol";
 import "@openzeppelin/token/ERC20/utils/SafeERC20.sol";
-import "@openzeppelin/security/Pausable.sol";
-import "@openzeppelin/security/ReentrancyGuard.sol";
-import "@openzeppelin/proxy/utils/Initializable.sol";
+import "../../lib/openzeppelin-contracts-upgradeable/contracts/utils/ReentrancyGuardUpgradeable.sol";
 import "@openzeppelin/proxy/utils/UUPSUpgradeable.sol";
 import "./interfaces/IV3SwapRouter.sol";
-
 import "./common/FeeManager.sol";
 import "./interfaces/IV3SwapRouter.sol";
 import "./interfaces/IStabilityPool.sol";
@@ -39,7 +36,7 @@ struct CommonAddress {
     uint256 slippageDecimals;
 }
 
-contract StabilityVault is Initializable, UUPSUpgradeable, ReentrancyGuard, Pausable, FeeManager {
+contract StabilityVault is Initializable, UUPSUpgradeable, ReentrancyGuardUpgradeable, FeeManager {
     address public depositToken; // deposit token (PUSD)
     address public baseToken; // base token to swap all asset before swapping to depositToken
     address[] public collateralAssets;
@@ -58,6 +55,9 @@ contract StabilityVault is Initializable, UUPSUpgradeable, ReentrancyGuard, Paus
     mapping(address => address) public oracles;
 
     function init(VaultConfig memory _configs, CommonAddress memory _commonAddress) public initializer {
+        __Ownable2Step_init();
+        __ReentrancyGuard_init();
+        __Pausable_init();
         depositToken = _configs.depositToken;
         baseToken = _configs.baseToken;
         stabilityPool = _configs.stabilityPool;

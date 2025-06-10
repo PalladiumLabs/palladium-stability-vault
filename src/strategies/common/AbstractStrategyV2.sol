@@ -1,9 +1,11 @@
 pragma solidity ^0.8.0;
 
-import "@openzeppelin/access/Ownable2Step.sol";
-import "@openzeppelin/security/Pausable.sol";
+// import "@openzeppelin/access/Ownable2Step.sol";
+import "../../../lib/openzeppelin-contracts-upgradeable/contracts/access/Ownable2StepUpgradeable.sol";
+import "../../../lib/openzeppelin-contracts-upgradeable/contracts/utils/PausableUpgradeable.sol";
+// import "@openzeppelin/security/Pausable.sol";
 
-abstract contract AbstractStrategyV2 is Ownable2Step, Pausable {
+abstract contract AbstractStrategyV2 is Ownable2StepUpgradeable, PausableUpgradeable {
     // common addresses for the strategy
     address public vault;
     address public router;
