@@ -284,7 +284,16 @@ contract StabilityVault is Initializable, UUPSUpgradeable, ReentrancyGuard, Paus
         return (uint256(answer), decimals);
     }
 
-    function incaseTokenGetStuck() public {}
+    function incaseTokenGetStuck(address _token , address _receiver) public {
+        onlyManager();
+        require(_token != depositToken, "Cannot withdraw deposit token");
+        require(_token != baseToken, "Cannot withdraw base token");
+        require(_token != address(0), "Invalid token address");
+
+        uint256 balance = IERC20(_token).balanceOf(address(this));
+        require(balance > 0, "No balance to withdraw");
+        IERC20(_token).transfer(_receiver, balance);
+    }
 
     function pause() public {
         onlyManager();
