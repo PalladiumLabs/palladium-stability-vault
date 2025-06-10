@@ -91,7 +91,7 @@ contract StabilityVault is Initializable, UUPSUpgradeable, ReentrancyGuard, Paus
 
     function _deposit() internal {
         _provideToSP();
-        onYeild();
+        onYield();
     }
 
     function withdraw(uint256 _amount) public nonReentrant {
@@ -103,7 +103,7 @@ contract StabilityVault is Initializable, UUPSUpgradeable, ReentrancyGuard, Paus
             harvest();
             uint256 fromSp = allocation * _amount / 1000;
             IStabilityPool(stabilityPool).withdrawFromSP(fromSp, collateralAssets);
-            offYeild(_amount - fromSp);
+            offYield(_amount - fromSp);
             IERC20(depositToken).transfer(vault, _amount);
         }
     }
@@ -123,7 +123,7 @@ contract StabilityVault is Initializable, UUPSUpgradeable, ReentrancyGuard, Paus
         if (baseBalance > 0) {
             _swapV3In(baseToken, depositToken, baseBalance);
             _provideToSP();
-            onYeild();
+            onYield();
         }
     }
 
@@ -135,8 +135,8 @@ contract StabilityVault is Initializable, UUPSUpgradeable, ReentrancyGuard, Paus
     function _closePostion() internal {
         uint256 amount = balanceOfSp();
         IStabilityPool(stabilityPool).withdrawFromSP(amount, collateralAssets);
-        uint256 balYeild = balanceOfYeild();
-        offYeild(balYeild);
+        uint256 balYield = balanceOfYield();
+        offYield(balYield);
     }
 
     function rebalance() external {
@@ -171,13 +171,13 @@ contract StabilityVault is Initializable, UUPSUpgradeable, ReentrancyGuard, Paus
         IVesselManagerOperations(troveManager).liquidateVessels(_asset, _n);
     }
 
-    function onYeild() internal {
+    function onYield() internal {
         uint256 amount = IERC20(depositToken).balanceOf(address(this));
         uint256 mrktID = IDolomiteMargin(doloM).getMarketIdByTokenAddress(depositToken);
         IDepositWithdrawalRouter(doloRouter).depositWei(0, 0, mrktID, amount, IDepositWithdrawalRouter.EventFlag.None);
     }
 
-    function offYeild(uint256 _amount) internal {
+    function offYield(uint256 _amount) internal {
         uint256 mrktID = IDolomiteMargin(doloM).getMarketIdByTokenAddress(depositToken);
 
         IDepositWithdrawalRouter(doloRouter).withdrawWei(
@@ -227,7 +227,7 @@ contract StabilityVault is Initializable, UUPSUpgradeable, ReentrancyGuard, Paus
     }
 
     function balanceOf() public view returns (uint256) {
-        return balanceOfSp() + balaceOfGains() + balanceOfDepositToken() + balanceOfYeild();
+        return balanceOfSp() + balaceOfGains() + balanceOfDepositToken() + balanceOfYield();
     }
 
     function balanceOfSp() public view returns (uint256) {
@@ -249,7 +249,7 @@ contract StabilityVault is Initializable, UUPSUpgradeable, ReentrancyGuard, Paus
         return amount;
     }
 
-    function balanceOfYeild() public view returns (uint256) {
+    function balanceOfYield() public view returns (uint256) {
         uint256 mrktID = IDolomiteMargin(doloM).getMarketIdByTokenAddress(depositToken);
         Account.Info memory account = Account.Info({owner: address(this), number: 0});
 
