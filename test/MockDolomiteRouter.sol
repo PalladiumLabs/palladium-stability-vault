@@ -20,6 +20,7 @@ contract MockDolomiteRouter is IDepositWithdrawalRouter {
     ) external {
         address token = mrkt[_marketId];
         IERC20(token).transferFrom(msg.sender, address(this), _amountWei);
+        balance[msg.sender] += _amountWei;
     }
 
     function withdrawWei(

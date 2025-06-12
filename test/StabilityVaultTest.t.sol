@@ -96,12 +96,15 @@ contract StabilityVaultTest is Test {
 
     function test_Withdraw() public {
         uint256 pusdBalance = IERC20(pusd).balanceOf(deployer);
-
+        console.log("PUSD balance before deposit:", pusdBalance);
         test_Deposit();
         vm.startPrank(deployer);
         uint256 shares = vault.balanceOf(deployer);
         console.log("Withdrawing shares:", shares);
         vault.redeem(shares, deployer, deployer);
+        uint256 pusdBalanceAfter = IERC20(pusd).balanceOf(deployer);
+        console.log("PUSD balance after withdraw:", pusdBalanceAfter);
+        assert(pusdBalance == pusdBalanceAfter);
     }
 
     function test_checkManger() public {
