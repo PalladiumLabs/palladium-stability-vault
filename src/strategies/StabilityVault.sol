@@ -147,7 +147,7 @@ contract StabilityVault is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
 
     function _provideToSP() internal {
         uint256 _amount = IERC20(depositToken).balanceOf(address(this));
-        uint256 inSp = allocation * _amount/1000;
+        uint256 inSp = allocation * _amount / 1000;
         IStabilityPool(stabilityPool).provideToSP(inSp, collateralAssets);
     }
 
@@ -180,9 +180,7 @@ contract StabilityVault is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
     function offYield(uint256 _amount) internal {
         uint256 mrktID = IDolomiteMargin(doloM).getMarketIdByTokenAddress(depositToken);
 
-        IDepositWithdrawalRouter(doloRouter).withdrawWei(
-            0, 0, mrktID, _amount, AccountBalanceLib.BalanceCheckFlag.None
-        );
+        IDepositWithdrawalRouter(doloRouter).withdrawWei(0, 0, mrktID, _amount, AccountBalanceLib.BalanceCheckFlag.None);
     }
 
     function harvest() public {
@@ -200,8 +198,7 @@ contract StabilityVault is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
         }
     }
 
-
-    function setAllo(uint256 _newAllo) external returns(uint256) {
+    function setAllo(uint256 _newAllo) external returns (uint256) {
         onlyManager();
         allocation = _newAllo;
         return allocation;
@@ -284,7 +281,7 @@ contract StabilityVault is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
         return (uint256(answer), decimals);
     }
 
-    function incaseTokenGetStuck(address _token , address _receiver) public {
+    function incaseTokenGetStuck(address _token, address _receiver) public {
         onlyManager();
         require(_token != depositToken, "Cannot withdraw deposit token");
         require(_token != baseToken, "Cannot withdraw base token");
@@ -309,9 +306,9 @@ contract StabilityVault is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
         IERC20(depositToken).approve(stabilityPool, type(uint256).max);
         IERC20(depositToken).approve(router, type(uint256).max);
         IERC20(depositToken).approve(doloRouter, type(uint256).max);
-        IERC20(baseToken).approve(doloRouter,type(uint256).max);
+        IERC20(baseToken).approve(doloRouter, type(uint256).max);
         IERC20(baseToken).approve(router, type(uint256).max);
-     
+
         for (uint256 i = 0; i < collateralAssets.length; i++) {
             IERC20(collateralAssets[i]).approve(stabilityPool, type(uint256).max);
             IERC20(collateralAssets[i]).approve(router, type(uint256).max);
@@ -330,7 +327,7 @@ contract StabilityVault is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
         IERC20(depositToken).approve(router, 0);
         IERC20(depositToken).approve(doloRouter, 0);
         IERC20(baseToken).approve(router, 0);
-       
+
         for (uint256 i = 0; i < collateralAssets.length; i++) {
             IERC20(collateralAssets[i]).approve(stabilityPool, 0);
             IERC20(collateralAssets[i]).approve(router, 0);

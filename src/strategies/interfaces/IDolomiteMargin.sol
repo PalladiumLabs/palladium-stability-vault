@@ -24,6 +24,4 @@ interface IDolomiteMargin {
     function getMarketIdByTokenAddress(address token) external view returns (uint256);
 
     function getAccountWei(Account.Info calldata account, uint256 marketId) external view returns (Types.Wei memory);
-
-    function getAccountPar(Account.Info calldata account, uint256 marketId) external view returns (Types.Par memory);
 }
