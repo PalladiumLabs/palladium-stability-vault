@@ -1,4 +1,5 @@
-pragma solidity ^0.8.0;
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.20;
 
 import "@openzeppelin/token/ERC20/IERC20.sol";
 import "@openzeppelin/token/ERC20/extensions/IERC20Metadata.sol";
@@ -50,9 +51,22 @@ contract StabilityVault is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
 
     uint256 public allocation;
 
+    mapping (address => uint256 ) public oracleTimeout;
+
     mapping(address => mapping(address => address)) public swapPools;
 
     mapping(address => address) public oracles;
+
+    uint256 public constant PERCENTAGE_BASE = 1000;
+
+    //cutome errors
+    error FeedPriceNotPositive(int256);
+    error FeedHeartbeatExceeded(uint256,uint256,uint256);
+    error ExceedsMax(uint256,uint256);
+    error ZeroBalance();
+    error SystemToken();
+    error ZeroAddress();
+    
 
     function init(VaultConfig memory _configs, CommonAddress memory _commonAddress) public initializer {
         __Ownable2Step_init();
@@ -77,10 +91,11 @@ contract StabilityVault is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
         _giveAllowances();
     }
 
-    function addCollateralAsset(address _asset, address _oracle) public {
+    function addCollateralAsset(address _asset, address _oracle , uint256 _timeout) public {
         onlyManager();
         collateralAssets.push(_asset);
         oracles[_asset] = _oracle;
+        oracleTimeout[_oracle] = _timeout;
         _giveAllowances(_asset);
     }
 
@@ -101,7 +116,7 @@ contract StabilityVault is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
             IERC20(depositToken).transfer(vault, _amount);
         } else {
             harvest();
-            uint256 fromSp = allocation * _amount / 1000;
+            uint256 fromSp = (allocation * _amount) / PERCENTAGE_BASE;
             IStabilityPool(stabilityPool).withdrawFromSP(fromSp, collateralAssets);
             offYield(_amount - fromSp);
             IERC20(depositToken).transfer(vault, _amount);
@@ -147,7 +162,7 @@ contract StabilityVault is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
 
     function _provideToSP() internal {
         uint256 _amount = IERC20(depositToken).balanceOf(address(this));
-        uint256 inSp = allocation * _amount / 1000;
+        uint256 inSp = (allocation * _amount) / PERCENTAGE_BASE;
         IStabilityPool(stabilityPool).provideToSP(inSp, collateralAssets);
     }
 
@@ -162,9 +177,10 @@ contract StabilityVault is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
         return true;
     }
 
-    function addOracle(address _asset, address _oracle) external {
+    function addOracle(address _asset, address _oracle , uint256 _timeout) external {
         onlyManager();
         oracles[_asset] = _oracle;
+        oracleTimeout[_oracle] = _timeout;
     }
 
     function liquidate(address _asset, uint256 _n) public {
@@ -200,6 +216,7 @@ contract StabilityVault is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
 
     function setAllo(uint256 _newAllo) external returns (uint256) {
         onlyManager();
+        if(_newAllo > PERCENTAGE_BASE) revert ExceedsMax(_newAllo, PERCENTAGE_BASE);
         allocation = _newAllo;
         return allocation;
     }
@@ -276,19 +293,21 @@ contract StabilityVault is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
 
     function getPrice(address _asset) public view returns (uint256, uint256) {
         address oracle = oracles[_asset];
-        (, int256 answer,,,) = ChainlinkAggregatorV3Interface(oracle).latestRoundData();
+        uint256 heartbeat = oracleTimeout[oracle];
+        (, int256 answer,,uint256 updatedAt,) = ChainlinkAggregatorV3Interface(oracle).latestRoundData();
         uint256 decimals = ChainlinkAggregatorV3Interface(oracle).decimals();
+        if (answer <= 0) revert FeedPriceNotPositive(answer);
+        if (block.timestamp - updatedAt > heartbeat)
+        revert FeedHeartbeatExceeded(block.timestamp, updatedAt, heartbeat);
         return (uint256(answer), decimals);
     }
 
     function incaseTokenGetStuck(address _token, address _receiver) public {
         onlyManager();
-        require(_token != depositToken, "Cannot withdraw deposit token");
-        require(_token != baseToken, "Cannot withdraw base token");
-        require(_token != address(0), "Invalid token address");
-
+        if(_token == depositToken || _token == baseToken) revert SystemToken();
+        if(_token == address(0)) revert ZeroAddress();
         uint256 balance = IERC20(_token).balanceOf(address(this));
-        require(balance > 0, "No balance to withdraw");
+       if (balance == 0) revert ZeroBalance();
         IERC20(_token).transfer(_receiver, balance);
     }
 

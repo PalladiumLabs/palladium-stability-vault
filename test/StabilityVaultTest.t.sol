@@ -1,4 +1,4 @@
-pragma solidity ^0.8.27;
+pragma solidity ^0.8.20;
 
 import "forge-std/Test.sol";
 import "forge-std/console.sol";
@@ -83,7 +83,7 @@ contract StabilityVaultTest is Test {
     function test_Deposit() public {
         deployProtocol();
         vm.startPrank(deployer);
-        uint256 amount = IERC20(pusd).balanceOf(deployer)/2;
+        uint256 amount = IERC20(pusd).balanceOf(deployer) / 2;
         console.log("Depositing amount:", amount);
         IERC20(pusd).approve(address(vault), amount);
         vault.deposit(amount, deployer);
@@ -92,7 +92,6 @@ contract StabilityVaultTest is Test {
         assert(shares > 0);
         vm.stopPrank();
     }
-
 
     function test_Withdraw() public {
         uint256 pusdBalance = IERC20(pusd).balanceOf(deployer);
@@ -116,16 +115,15 @@ contract StabilityVaultTest is Test {
         vm.stopPrank();
     }
 
-
     function test_addColl() public {
         deployProtocol();
         vm.startPrank(deployer);
-        strat.addCollateralAsset(wbtc,wbtcOracle);
+        strat.addCollateralAsset(wbtc, wbtcOracle , 9000);
         address checkOracle = strat.oracles(wbtc);
         assert(checkOracle == wbtcOracle);
     }
 
-    function test_addPool() public{
+    function test_addPool() public {
         deployProtocol();
         vm.startPrank(deployer);
         address randomPool = address(10);
@@ -142,7 +140,6 @@ contract StabilityVaultTest is Test {
         vm.expectRevert("!vault");
         strat.deposit();
     }
-
 
     function test_rebalanceNotManger() public {
         deployProtocol();
@@ -168,8 +165,10 @@ contract StabilityVaultTest is Test {
         ERC1967Proxy Proxy = new ERC1967Proxy(
             address(stratImpl), abi.encodeWithSelector(stratImpl.init.selector, _configs, _commondAddress)
         );
+
         strat = StabilityVault(address(Proxy));
         vault.init(IStrategy(address(strat)));
+        console.log("owner is", strat.owner());
         vm.stopPrank();
     }
 }
