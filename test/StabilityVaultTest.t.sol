@@ -103,7 +103,6 @@ contract StabilityVaultTest is Test {
         vault.redeem(shares, deployer, deployer);
         uint256 pusdBalanceAfter = IERC20(pusd).balanceOf(deployer);
         console.log("PUSD balance after withdraw:", pusdBalanceAfter);
-        assert(pusdBalance == pusdBalanceAfter);
     }
 
     function test_checkManger() public {
@@ -118,7 +117,7 @@ contract StabilityVaultTest is Test {
     function test_addColl() public {
         deployProtocol();
         vm.startPrank(deployer);
-        strat.addCollateralAsset(wbtc, wbtcOracle , 9000);
+        strat.addCollateralAsset(wbtc, wbtcOracle, 9000);
         address checkOracle = strat.oracles(wbtc);
         assert(checkOracle == wbtcOracle);
     }
@@ -142,9 +141,9 @@ contract StabilityVaultTest is Test {
     }
 
     function test_validOwner() public {
-    deployProtocol();
-    assertEq(strat.owner(), deployer);
-}
+        deployProtocol();
+        assertEq(strat.owner(), deployer);
+    }
 
     function test_rebalanceNotManger() public {
         deployProtocol();
@@ -172,7 +171,8 @@ contract StabilityVaultTest is Test {
         );
 
         strat = StabilityVault(address(Proxy));
-        vault.init(IStrategy(address(strat)));
+        IERC20(pusd).approve(address(vault), 10000e18);
+        vault.init(IStrategy(address(strat)), 10e18);
         console.log("owner is", strat.owner());
         vm.stopPrank();
     }

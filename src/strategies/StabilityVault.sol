@@ -38,6 +38,8 @@ struct CommonAddress {
 }
 
 contract StabilityVault is Initializable, UUPSUpgradeable, ReentrancyGuardUpgradeable, FeeManager {
+    using SafeERC20 for IERC20;
+
     address public depositToken; // deposit token (PUSD)
     address public baseToken; // base token to swap all asset before swapping to depositToken
     address[] public collateralAssets;
@@ -51,7 +53,7 @@ contract StabilityVault is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
 
     uint256 public allocation;
 
-    mapping (address => uint256 ) public oracleTimeout;
+    mapping(address => uint256) public oracleTimeout;
 
     mapping(address => mapping(address => address)) public swapPools;
 
@@ -59,14 +61,27 @@ contract StabilityVault is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
 
     uint256 public constant PERCENTAGE_BASE = 1000;
 
+    //events
+    event CollateralAdded(address asset, address oracle);
+    event WithdrawStrat(uint256 _amount, uint256 _fee);
+    event PostionClosed(uint256 fromSp, uint256 fromYield);
+    event PoolAdded(address _collateral, address _baseToken, address _pool);
+    event OracleAdded(address _asset, address _oracle);
+    event newAllo(uint256 _newAllocation);
+    event SentFunds(address _token, address _receiver, uint256 _amount);
+    event Harvest(address _token,uint256 _amount);
+
     //cutome errors
     error FeedPriceNotPositive(int256);
-    error FeedHeartbeatExceeded(uint256,uint256,uint256);
-    error ExceedsMax(uint256,uint256);
+    error FeedHeartbeatExceeded(uint256, uint256, uint256);
+    error ExceedsMax(uint256, uint256);
     error ZeroBalance();
     error SystemToken();
     error ZeroAddress();
-    
+
+    constructor() {
+        _disableInitializers();
+    }
 
     function init(VaultConfig memory _configs, CommonAddress memory _commonAddress) public initializer {
         __Ownable2Step_init();
@@ -92,12 +107,13 @@ contract StabilityVault is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
         _giveAllowances();
     }
 
-    function addCollateralAsset(address _asset, address _oracle , uint256 _timeout) public {
+    function addCollateralAsset(address _asset, address _oracle, uint256 _timeout) public {
         onlyManager();
         collateralAssets.push(_asset);
         oracles[_asset] = _oracle;
         oracleTimeout[_oracle] = _timeout;
         _giveAllowances(_asset);
+        emit CollateralAdded(_asset, _oracle);
     }
 
     function deposit() public whenNotPaused {
@@ -114,14 +130,25 @@ contract StabilityVault is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
         onlyVault();
         uint256 currentBal = IERC20(depositToken).balanceOf(address(this));
         if (_amount <= currentBal) {
-            IERC20(depositToken).transfer(vault, _amount);
+            IERC20(depositToken).safeTransfer(vault, _amount);
         } else {
             harvest();
             uint256 fromSp = (allocation * _amount) / PERCENTAGE_BASE;
             IStabilityPool(stabilityPool).withdrawFromSP(fromSp, collateralAssets);
             offYield(_amount - fromSp);
-            IERC20(depositToken).transfer(vault, _amount);
+            uint256 feeCharged = chargeFee(_amount, withdrawFee, withdrawFeeDecimals);
+            IERC20(depositToken).safeTransfer(vault, _amount - feeCharged);
+            emit WithdrawStrat(_amount, feeCharged);
         }
+    }
+
+    function chargeFee(uint256 _amount, uint256 _fee, uint256 _decimals) public returns (uint256) {
+        if (_fee > 0) {
+            uint256 feeCharged = _amount * _fee / _decimals;
+            IERC20(depositToken).safeTransfer(manager, feeCharged);
+            return feeCharged;
+        }
+        return 0;
     }
 
     function compoundGains() public {
@@ -141,6 +168,7 @@ contract StabilityVault is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
             _provideToSP();
             onYield();
         }
+        emit Harvest(baseToken,baseBalance);
     }
 
     function closePostion() external {
@@ -153,6 +181,7 @@ contract StabilityVault is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
         IStabilityPool(stabilityPool).withdrawFromSP(amount, collateralAssets);
         uint256 balYield = balanceOfYield();
         offYield(balYield);
+        emit PostionClosed(amount, balYield);
     }
 
     function rebalance() external {
@@ -175,17 +204,19 @@ contract StabilityVault is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
         onlyManager();
         swapPools[_collateralAsset][_baseToken] = _pool;
         swapPools[_baseToken][_collateralAsset] = _pool;
+        emit PoolAdded(_collateralAsset, _baseToken, _pool);
         return true;
     }
 
-    function addOracle(address _asset, address _oracle , uint256 _timeout) external {
+    function addOracle(address _asset, address _oracle, uint256 _timeout) external {
         onlyManager();
         oracles[_asset] = _oracle;
         oracleTimeout[_oracle] = _timeout;
+        emit OracleAdded(_asset, _oracle);
     }
 
     function liquidate(address _asset, uint256 _n) public {
-        IVesselManagerOperations(troveManager).liquidateVessels(_asset, _n);
+        TroveManagerOperations(troveManager).liquidateTroves(_asset, _n);
     }
 
     function onYield() internal {
@@ -213,12 +244,14 @@ contract StabilityVault is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
             _swapV3In(baseToken, depositToken, baseBal);
             _deposit();
         }
+        emit Harvest(baseToken,baseBal);
     }
 
     function setAllo(uint256 _newAllo) external returns (uint256) {
         onlyManager();
-        if(_newAllo > PERCENTAGE_BASE) revert ExceedsMax(_newAllo, PERCENTAGE_BASE);
+        if (_newAllo > PERCENTAGE_BASE) revert ExceedsMax(_newAllo, PERCENTAGE_BASE);
         allocation = _newAllo;
+        emit newAllo(_newAllo);
         return allocation;
     }
 
@@ -236,9 +269,22 @@ contract StabilityVault is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
 
     function tokenToUSD(address _asset, uint256 _amount) public view returns (uint256) {
         address oracle = oracles[_asset];
-        (, int256 answer,,,) = ChainlinkAggregatorV3Interface(oracle).latestRoundData();
-        uint256 decimals = ChainlinkAggregatorV3Interface(oracle).decimals();
-        return (uint256(answer) * _amount) / (10 ** decimals);
+        uint256 heartbeat = oracleTimeout[oracle];
+        (, int256 answer,, uint256 updatedAt,) = ChainlinkAggregatorV3Interface(oracle).latestRoundData();
+        uint256 oracleDecimals = ChainlinkAggregatorV3Interface(oracle).decimals();
+        if (answer <= 0) revert FeedPriceNotPositive(answer);
+        if (block.timestamp - updatedAt > heartbeat) {
+            revert FeedHeartbeatExceeded(block.timestamp, updatedAt, heartbeat);
+        }
+
+        uint256 tokenDecimals = IERC20Metadata(_asset).decimals();
+
+        // Normalize `_amount` to 18 decimals
+        uint256 normalizedAmount = (_amount * 1e18) / (10 ** tokenDecimals);
+
+        // Normalize price to 18 decimals too
+        uint256 price = uint256(answer) * 1e18 / (10 ** oracleDecimals);
+        return (normalizedAmount * price) / 1e18;
     }
 
     function balanceOf() public view returns (uint256) {
@@ -295,71 +341,83 @@ contract StabilityVault is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
     function getPrice(address _asset) public view returns (uint256, uint256) {
         address oracle = oracles[_asset];
         uint256 heartbeat = oracleTimeout[oracle];
-        (, int256 answer,,uint256 updatedAt,) = ChainlinkAggregatorV3Interface(oracle).latestRoundData();
+        (, int256 answer,, uint256 updatedAt,) = ChainlinkAggregatorV3Interface(oracle).latestRoundData();
         uint256 decimals = ChainlinkAggregatorV3Interface(oracle).decimals();
         if (answer <= 0) revert FeedPriceNotPositive(answer);
-        if (block.timestamp - updatedAt > heartbeat)
-        revert FeedHeartbeatExceeded(block.timestamp, updatedAt, heartbeat);
+        if (block.timestamp - updatedAt > heartbeat) {
+            revert FeedHeartbeatExceeded(block.timestamp, updatedAt, heartbeat);
+        }
         return (uint256(answer), decimals);
     }
 
-    function incaseTokenGetStuck(address _token, address _receiver) public {
+    function inCaseTokensGetStuck(address _token, address _receiver) public {
         onlyManager();
-        if(_token == depositToken || _token == baseToken) revert SystemToken();
-        if(_token == address(0)) revert ZeroAddress();
+        if (_token == depositToken || _token == baseToken) revert SystemToken();
+        if (_token == address(0)) revert ZeroAddress();
         uint256 balance = IERC20(_token).balanceOf(address(this));
-       if (balance == 0) revert ZeroBalance();
-        IERC20(_token).transfer(_receiver, balance);
+        if (balance == 0) revert ZeroBalance();
+        IERC20(_token).safeTransfer(_receiver, balance);
+        emit SentFunds(_token, _receiver, balance);
+    }
+
+    function retireStrat() external {
+        onlyVault();
+        _closePostion();
+        uint256 balance = IERC20(depositToken).balanceOf(address(this));
+        IERC20(depositToken).safeTransfer(vault, balance);
+        _pause();
     }
 
     function pause() public {
         onlyManager();
         _pause();
+        _removeAllowances();
     }
 
     function unpause() public {
         onlyManager();
         _unpause();
+        _giveAllowances();
     }
 
     function _giveAllowances() internal virtual {
-        IERC20(depositToken).approve(stabilityPool, type(uint256).max);
-        IERC20(depositToken).approve(router, type(uint256).max);
-        IERC20(depositToken).approve(doloRouter, type(uint256).max);
-        IERC20(baseToken).approve(doloRouter, type(uint256).max);
-        IERC20(baseToken).approve(router, type(uint256).max);
+        IERC20(depositToken).safeApprove(stabilityPool, type(uint256).max);
+        IERC20(depositToken).safeApprove(router, type(uint256).max);
+        IERC20(depositToken).safeApprove(doloRouter, type(uint256).max);
+        if (depositToken != baseToken) {
+            IERC20(baseToken).safeApprove(doloRouter, type(uint256).max);
+            IERC20(baseToken).safeApprove(router, type(uint256).max);
+        }
 
         for (uint256 i = 0; i < collateralAssets.length; i++) {
-            IERC20(collateralAssets[i]).approve(stabilityPool, type(uint256).max);
-            IERC20(collateralAssets[i]).approve(router, type(uint256).max);
-            IERC20(collateralAssets[i]).approve(doloRouter, type(uint256).max);
+            IERC20(collateralAssets[i]).safeApprove(stabilityPool, type(uint256).max);
+            IERC20(collateralAssets[i]).safeApprove(router, type(uint256).max);
+            IERC20(collateralAssets[i]).safeApprove(doloRouter, type(uint256).max);
         }
     }
 
     function _giveAllowances(address _asset) internal virtual {
-        IERC20(_asset).approve(stabilityPool, type(uint256).max);
-        IERC20(_asset).approve(router, type(uint256).max);
-        IERC20(_asset).approve(doloRouter, type(uint256).max);
+        IERC20(_asset).safeApprove(stabilityPool, type(uint256).max);
+        IERC20(_asset).safeApprove(router, type(uint256).max);
+        IERC20(_asset).safeApprove(doloRouter, type(uint256).max);
     }
 
     function _removeAllowances() internal virtual {
-        IERC20(depositToken).approve(stabilityPool, 0);
-        IERC20(depositToken).approve(router, 0);
-        IERC20(depositToken).approve(doloRouter, 0);
-        IERC20(baseToken).approve(router, 0);
+        IERC20(depositToken).safeApprove(stabilityPool, 0);
+        IERC20(depositToken).safeApprove(router, 0);
+        IERC20(depositToken).safeApprove(doloRouter, 0);
+        if (depositToken != baseToken) {
+            IERC20(baseToken).safeApprove(router, 0);
+            IERC20(baseToken).safeApprove(doloRouter, 0);
+        }
 
         for (uint256 i = 0; i < collateralAssets.length; i++) {
-            IERC20(collateralAssets[i]).approve(stabilityPool, 0);
-            IERC20(collateralAssets[i]).approve(router, 0);
-            IERC20(collateralAssets[i]).approve(doloRouter, 0);
+            IERC20(collateralAssets[i]).safeApprove(stabilityPool, 0);
+            IERC20(collateralAssets[i]).safeApprove(router, 0);
+            IERC20(collateralAssets[i]).safeApprove(doloRouter, 0);
         }
     }
 
-    function _removeAllowances(address _asset) internal virtual {
-        IERC20(_asset).approve(stabilityPool, 0);
-        IERC20(_asset).approve(router, 0);
-        IERC20(_asset).approve(doloRouter, 0);
-    }
 
     function _authorizeUpgrade(address) internal override onlyOwner {}
 }

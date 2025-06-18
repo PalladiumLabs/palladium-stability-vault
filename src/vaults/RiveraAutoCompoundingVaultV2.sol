@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MIT
-
-pragma solidity ^0.8.0;
+pragma solidity 0.8.20;
 
 import "@openzeppelin/token/ERC20/extensions/ERC4626.sol";
 
@@ -44,6 +43,7 @@ abstract contract RiveraAutoCompoundingVaultV2 is ERC4626, Ownable, ReentrancyGu
     event TvlCapChange(address indexed onwer_, uint256 oldTvlCap, uint256 newTvlCap);
     event UserTvlCapChange(address indexed onwer_, address indexed user, uint256 oldTvlCap, uint256 newTvlCap);
     event SharePriceChange(uint256 sharePriceX96, uint256 unutilizedAssetBal);
+    event SentFunds(address _token, uint256 _amount);
 
     /*
      * @dev Sets the value of {token} to the token that the vault will
@@ -66,8 +66,9 @@ abstract contract RiveraAutoCompoundingVaultV2 is ERC4626, Ownable, ReentrancyGu
         totalTvlCap = _totalTvlCap;
     }
 
-    function init(IStrategy _strategy) public initializer {
+    function init(IStrategy _strategy, uint256 _initialDeposit) public initializer {
         strategy = _strategy;
+        deposit(_initialDeposit, address(0xdead));
     }
 
     ///@dev hook function for access control of the vault. Has to be overriden in inheriting contracts to only give access for relevant parties.
@@ -231,10 +232,11 @@ abstract contract RiveraAutoCompoundingVaultV2 is ERC4626, Ownable, ReentrancyGu
      * @dev Rescues random funds stuck that the strat can't handle.
      * @param _token address of the token to rescue.
      */
-    function inCaseTokensGetStuck(address _token) external {
+    function incaseTokenGetStuck(address _token) external {
         _checkOwner();
         require(_token != asset(), "!token"); //Token must not be equal to address of stake currency
         uint256 amount = IERC20(_token).balanceOf(address(this)); //Just finding the balance of this vault contract address in the the passed token and transfers
         IERC20(_token).safeTransfer(msg.sender, amount);
+        emit SentFunds(_token, amount);
     }
 }

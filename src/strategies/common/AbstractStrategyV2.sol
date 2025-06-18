@@ -1,4 +1,5 @@
-pragma solidity ^0.8.0;
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.20;
 
 // import "@openzeppelin/access/Ownable2Step.sol";
 import "../../../lib/openzeppelin-contracts-upgradeable/contracts/access/Ownable2StepUpgradeable.sol";
@@ -28,10 +29,10 @@ abstract contract AbstractStrategyV2 is Ownable2StepUpgradeable, PausableUpgrade
         onlyManager();
         require(_manager != address(0), "IA"); //invalid address
         _pendingManager = _manager;
-        // emit SetManager(_manager);
+        emit SetManager(_manager);
     }
 
-    function renounceOwnership() public override onlyOwner {
+    function renounceOwnership() public view override onlyOwner {
         revert("ROD"); //Renounce ownership disabled
     }
 
@@ -45,4 +46,6 @@ abstract contract AbstractStrategyV2 is Ownable2StepUpgradeable, PausableUpgrade
         require(_pendingManager == msg.sender, "CINNM"); //Caller Is Not New Manager
         _transferManagership(msg.sender);
     }
+
+    uint256[50] private __gap;
 }

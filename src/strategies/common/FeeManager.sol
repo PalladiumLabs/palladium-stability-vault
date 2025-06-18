@@ -10,4 +10,6 @@ contract FeeManager is AbstractStrategyV2 {
 
     uint256 public slippage;
     uint256 public slippageDecimals;
+
+    uint256[50] private __gap;
 }

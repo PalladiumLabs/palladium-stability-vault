@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MIT
-
-pragma solidity ^0.8.0;
+pragma solidity 0.8.20;
 
 import {RiveraAutoCompoundingVaultV2} from "@rivera/vaults/RiveraAutoCompoundingVaultV2.sol";
 import {WhitelistFilter} from "@rivera/libs/WhitelistFilter.sol";
