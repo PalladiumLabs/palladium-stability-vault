@@ -141,6 +141,11 @@ contract StabilityVaultTest is Test {
         strat.deposit();
     }
 
+    function test_validOwner() public {
+    deployProtocol();
+    assertEq(strat.owner(), deployer);
+}
+
     function test_rebalanceNotManger() public {
         deployProtocol();
         vm.startPrank(deployer2);

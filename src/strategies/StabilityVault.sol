@@ -70,6 +70,7 @@ contract StabilityVault is Initializable, UUPSUpgradeable, ReentrancyGuardUpgrad
 
     function init(VaultConfig memory _configs, CommonAddress memory _commonAddress) public initializer {
         __Ownable2Step_init();
+        __Ownable_init(msg.sender);
         __ReentrancyGuard_init();
         __Pausable_init();
         depositToken = _configs.depositToken;
